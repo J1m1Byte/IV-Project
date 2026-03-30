@@ -118,6 +118,7 @@ htmlcov/
 
 # Ignore heavy / non-reproducible artifacts inside outputs
 outputs/**/*.keras
+output/**/*.keras
 outputs/**/*.pkl
 outputs/.DS_Store
 outputs/**/.DS_Store
