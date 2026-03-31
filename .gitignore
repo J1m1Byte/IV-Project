@@ -129,4 +129,8 @@ outputs/**/.DS_Store
 /.claude
 /log
 CLAUDE.md
-backup.sh
+
+################################################################################
+# Backup — track the script, ignore generated zips
+################################################################################
+backup/*.zip
