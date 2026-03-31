@@ -1,4 +1,39 @@
-# PyTorch fully-connected ANN utilities optimized for Colab GPUs
+"""
+PyTorch fully-connected ANN utilities optimized for Colab GPUs.
+
+Rewritten to fix three diagnosed bugs from the 2.1 notebooks:
+
+Bug 1 — dropna_splits contamination
+  The old design called dropna_splits() ONCE upfront with ALL candidate features
+  (including d_iv_lag, iv_lag), silently removing NaN rows from the test set
+  before any model was trained.  This meant the Hull-White benchmark and every
+  model — even the 3F model that doesn't use d_iv_lag — were evaluated on a
+  different, smaller test set, making cross-model gain comparisons invalid.
+  FIX: The analytic benchmark and test-set evaluation always use the FULL test
+  set loaded from parquet with NO rows dropped.  NaN handling is done per-model
+  inside train_one_model: training/validation rows with NaN in the specific
+  model's features are excluded, but test rows are never dropped (NaN test
+  features are filled with 0 after scaling so the model still produces a
+  prediction for every row).
+
+Bug 2 — Batch size 65,536 causes under-convergence on small datasets
+  detect_device() returned a fixed BATCH=65,536 for A100/H100 GPUs.  For small
+  datasets (e.g., rand_D with ~843K training rows), this gives only ~13 gradient
+  steps/epoch.  With patience=30, the model exits in ≤390 gradient updates —
+  nowhere near convergence.
+  FIX: detect_device() now returns MAX_BATCH (the GPU's hardware-optimal
+  ceiling).  A new function compute_batch_size() adaptively sets batch size to
+  ensure at least MIN_STEPS_PER_EPOCH (50) gradient steps per epoch, rounded
+  down to the nearest power of 2 with a floor of 512.
+
+Bug 3 — BatchNorm destabilises training on the d_iv target scale
+  The ANN_ReLU class included nn.BatchNorm1d layers.  For the tiny d_iv target
+  (values ~±0.05), BatchNorm destabilised training and produced negative gain
+  across all model specs.
+  FIX: ANN_ReLU now uses Linear → ReLU (no BatchNorm, no Dropout), matching
+  the paper's architecture exactly: 3 hidden layers × 80 neurons, ReLU
+  activations, linear output.  Kaiming uniform init on all Linear layers.
+"""
 
 import gc
 import shutil
@@ -15,28 +50,32 @@ from sklearn.preprocessing import StandardScaler
 from src.metrics import gain, metrics, residual_diagnostics
 
 
+# ── Constants ────────────────────────────────────────────────────────────────
 
-# === GPU detection ===
+MIN_STEPS_PER_EPOCH = 50
+
+
+# ── GPU detection ────────────────────────────────────────────────────────────
 
 def detect_device():
     """
     Auto-detect compute device and return config dict.
 
-    Returns dict with keys: GPU, BATCH, POLICY, DEVICE
+    Returns dict with keys: GPU, MAX_BATCH, POLICY, DEVICE, DEVICE_TYPE
     """
     if torch.cuda.is_available():
         name = torch.cuda.get_device_name(0).lower()
 
         if 'h100' in name:
-            cfg = dict(GPU='H100-80GB', BATCH=65_536, POLICY=torch.bfloat16)
+            cfg = dict(GPU='H100-80GB', MAX_BATCH=65_536, POLICY=torch.bfloat16)
         elif 'a100' in name:
-            cfg = dict(GPU='A100-80GB', BATCH=65_536, POLICY=torch.bfloat16)
+            cfg = dict(GPU='A100-80GB', MAX_BATCH=65_536, POLICY=torch.bfloat16)
         elif 'l4' in name:
-            cfg = dict(GPU='L4', BATCH=32_768, POLICY=torch.bfloat16)
+            cfg = dict(GPU='L4', MAX_BATCH=32_768, POLICY=torch.bfloat16)
         elif 't4' in name:
-            cfg = dict(GPU='T4', BATCH=8_192, POLICY=torch.float16)
+            cfg = dict(GPU='T4', MAX_BATCH=8_192, POLICY=torch.float16)
         else:
-            cfg = dict(GPU=name[:20], BATCH=4_096, POLICY=torch.float16)
+            cfg = dict(GPU=name[:20], MAX_BATCH=4_096, POLICY=torch.float16)
 
         cfg['DEVICE'] = torch.device('cuda')
         cfg['DEVICE_TYPE'] = 'cuda'
@@ -47,24 +86,43 @@ def detect_device():
 
         free, total = torch.cuda.mem_get_info()
         print(f'{cfg["GPU"]}  |  VRAM: {total / 1e9:.0f} GB  |  '
-              f'batch={cfg["BATCH"]:,}  |  dtype={cfg["POLICY"]}')
+              f'MAX_BATCH={cfg["MAX_BATCH"]:,}  |  dtype={cfg["POLICY"]}')
 
     elif hasattr(torch.backends, 'mps') and torch.backends.mps.is_available():
-        cfg = dict(GPU='Apple-MPS', BATCH=4_096, POLICY=torch.float32,
+        cfg = dict(GPU='Apple-MPS', MAX_BATCH=4_096, POLICY=torch.float32,
                    DEVICE=torch.device('mps'), DEVICE_TYPE='mps')
-        print(f'Apple MPS  |  batch={cfg["BATCH"]:,}  |  dtype={cfg["POLICY"]}')
+        print(f'Apple MPS  |  MAX_BATCH={cfg["MAX_BATCH"]:,}  |  dtype={cfg["POLICY"]}')
 
     else:
-        cfg = dict(GPU='CPU', BATCH=2_048, POLICY=torch.float32,
+        cfg = dict(GPU='CPU', MAX_BATCH=2_048, POLICY=torch.float32,
                    DEVICE=torch.device('cpu'), DEVICE_TYPE='cpu')
-        print(f'CPU  |  batch={cfg["BATCH"]:,}  |  dtype={cfg["POLICY"]}')
+        print(f'CPU  |  MAX_BATCH={cfg["MAX_BATCH"]:,}  |  dtype={cfg["POLICY"]}')
 
     return cfg
 
 
+def compute_batch_size(n_train, max_batch, min_steps=MIN_STEPS_PER_EPOCH):
+    """
+    Compute adaptive batch size ensuring at least *min_steps* gradient steps
+    per epoch.
+
+    Returns ``min(max_batch, n_train // min_steps)``, rounded down to the
+    nearest power of 2, with a floor of 512.
+    """
+    target = min(max_batch, n_train // min_steps)
+    if target < 512:
+        return 512
+    p = 1
+    while p * 2 <= target:
+        p *= 2
+    return p
+
+
+# ── Feature combo builder ───────────────────────────────────────────────────
+
 def build_feature_combos(base_features, extra_features, max_extra=3):
     """
-    Build feature combinations in the same style as 2.0-fc-rand-A-feature.
+    Build feature combinations: base alone, then base + 1..max_extra extras.
 
     Returns list of (name, feature_list).
     """
@@ -77,11 +135,17 @@ def build_feature_combos(base_features, extra_features, max_extra=3):
     return combos
 
 
+# ── NaN-safe split utilities ────────────────────────────────────────────────
+
 def dropna_splits(df_train, df_val, df_test, required_cols):
     """
-    Drop rows with missing values in required columns for each split.
+    Drop rows with missing values in *required_cols* from each split.
 
-    Returns cleaned (df_train, df_val, df_test, stats_dict).
+    This is a general-purpose utility.  It should NOT be called on the test
+    set before computing the analytic benchmark — use get_model_splits()
+    for per-model NaN handling instead.
+
+    Returns (df_train, df_val, df_test, stats_dict).
     """
     before = len(df_train) + len(df_val) + len(df_test)
     df_train = df_train.dropna(subset=required_cols).reset_index(drop=True)
@@ -92,10 +156,27 @@ def dropna_splits(df_train, df_val, df_test, required_cols):
     return df_train, df_val, df_test, stats
 
 
+def get_model_splits(df_train, df_val, df_test, feature_cols, target):
+    """
+    Return NaN-clean copies of train/val for a specific model's feature set.
+
+    Only the columns in *feature_cols* + *target* are checked for NaN.
+    The test set is returned **unchanged** — NaN rows are never dropped
+    from the test evaluation.
+
+    Returns (df_train_clean, df_val_clean, df_test).
+    """
+    cols = list(feature_cols) + [target]
+    tr = df_train.dropna(subset=cols).reset_index(drop=True)
+    va = df_val.dropna(subset=cols).reset_index(drop=True)
+    te = df_test.copy()
+    return tr, va, te
+
+
+# ── File I/O (Google Drive helpers) ──────────────────────────────────────────
+
 def _stage_drive_file(path, cache_dir=None):
-    """
-    Copy a file from a mounted Drive path into local scratch storage.
-    """
+    """Copy a file from a mounted Drive path into local scratch storage."""
     src = Path(path)
     cache_root = Path(cache_dir or '/tmp/iv_project_parquet_cache')
     cache_root.mkdir(parents=True, exist_ok=True)
@@ -119,9 +200,7 @@ def _stage_drive_file(path, cache_dir=None):
 
 
 def read_parquet_safe(path, *, cache_dir=None, local_first=None, **kwargs):
-    """
-    Read parquet robustly on Colab, retrying from local scratch if Drive drops.
-    """
+    """Read parquet robustly on Colab, retrying from local scratch if Drive drops."""
     path = Path(path)
     if local_first is None:
         local_first = str(path).startswith('/content/drive/')
@@ -144,9 +223,7 @@ def read_parquet_safe(path, *, cache_dir=None, local_first=None, **kwargs):
 
 
 def load_split_bundle(clean_data_dir, dataset, *, cache_dir=None, local_first=None, **kwargs):
-    """
-    Load train/val/test parquet splits for a dataset tag.
-    """
+    """Load train/val/test parquet splits for a dataset tag."""
     clean_data_dir = Path(clean_data_dir)
     splits = {}
     for split in ('train', 'val', 'test'):
@@ -160,11 +237,10 @@ def load_split_bundle(clean_data_dir, dataset, *, cache_dir=None, local_first=No
     return splits['train'], splits['val'], splits['test']
 
 
-
-# === Model ===
+# ── Model ────────────────────────────────────────────────────────────────────
 
 class ANN_ReLU(nn.Module):
-    """3 hidden layers x neurons ReLU + BatchNorm + linear output."""
+    """3 hidden layers × neurons, ReLU activations, linear output.  No BatchNorm."""
 
     def __init__(self, n_features, neurons=80, hidden_layers=3, seed=42):
         super().__init__()
@@ -174,7 +250,6 @@ class ANN_ReLU(nn.Module):
         for _ in range(hidden_layers):
             layers += [
                 nn.Linear(in_dim, neurons),
-                nn.BatchNorm1d(neurons),
                 nn.ReLU(inplace=True),
             ]
             in_dim = neurons
@@ -190,40 +265,78 @@ class ANN_ReLU(nn.Module):
         return self.net(x)
 
 
-
-# === Data preparation ===
+# ── Data preparation ─────────────────────────────────────────────────────────
 
 def prepare_gpu_data(df_train, df_val, df_test, all_features, target, device):
     """
-    Scale features from DataFrames and move everything to GPU.
+    Scale features from the FULL (non-dropped) DataFrames and move to GPU.
 
-    Parameters
-    ----------
-    df_train, df_val, df_test : pd.DataFrame
-    all_features : list[str] — all feature column names
-    target : str — target column name
-    device : torch.device
+    NaN handling
+    ------------
+    - Feature NaN values are filled with the training-set column mean before
+      scaling (so they map to ~0 in standardised space).
+    - Target NaN values in train/val are filled with 0 (these rows will be
+      excluded per-model via NaN masks during training).
+    - Boolean NaN masks are stored so train_one_model can exclude affected
+      rows from training/validation on a per-feature-set basis.
+    - Warnings are printed for any test-set feature columns containing NaN.
 
-    Returns
-    -------
-    dict with: Xtr, Xva, Xte (GPU tensors), ytr, yva (GPU tensors),
-               y_test (numpy), scaler, col_idx
+    Returns dict with: Xtr, Xva, Xte, ytr, yva, y_test,
+                       scaler, col_idx, nan_mask_tr, nan_mask_va,
+                       nan_mask_ytr, nan_mask_yva
     """
-    X_train = df_train[all_features].values.astype(np.float32)
-    X_val = df_val[all_features].values.astype(np.float32)
-    X_test = df_test[all_features].values.astype(np.float32)
+    n_feat = len(all_features)
 
-    ytr = df_train[target].values.astype(np.float32).reshape(-1, 1)
-    yva = df_val[target].values.astype(np.float32).reshape(-1, 1)
+    # Extract numpy arrays
+    X_train = df_train[all_features].values.astype(np.float64)
+    X_val = df_val[all_features].values.astype(np.float64)
+    X_test = df_test[all_features].values.astype(np.float64)
+
+    ytr = df_train[target].values.astype(np.float64).reshape(-1, 1)
+    yva = df_val[target].values.astype(np.float64).reshape(-1, 1)
     y_test = df_test[target].values.astype(np.float32).reshape(-1, 1)
 
+    # Record NaN positions before filling
+    nan_mask_tr = np.isnan(X_train)       # (n_train, n_feat)
+    nan_mask_va = np.isnan(X_val)         # (n_val,   n_feat)
+    nan_mask_te = np.isnan(X_test)        # (n_test,  n_feat)
+    nan_mask_ytr = np.isnan(ytr.ravel())  # (n_train,)
+    nan_mask_yva = np.isnan(yva.ravel())  # (n_val,)
+
+    # Compute column means from non-NaN training data and fill
+    col_means = np.nanmean(X_train, axis=0)
+    for j in range(n_feat):
+        if nan_mask_tr[:, j].any():
+            X_train[nan_mask_tr[:, j], j] = col_means[j]
+        if nan_mask_va[:, j].any():
+            X_val[nan_mask_va[:, j], j] = col_means[j]
+        if nan_mask_te[:, j].any():
+            X_test[nan_mask_te[:, j], j] = col_means[j]
+
+    # Fill target NaN with 0 (rows will be masked out during training)
+    ytr[nan_mask_ytr] = 0.0
+    yva[nan_mask_yva] = 0.0
+
+    # Scale features
     scaler = StandardScaler()
     Xtr_sc = scaler.fit_transform(X_train).astype(np.float32)
     Xva_sc = scaler.transform(X_val).astype(np.float32)
     Xte_sc = scaler.transform(X_test).astype(np.float32)
 
+    ytr = ytr.astype(np.float32)
+    yva = yva.astype(np.float32)
+
     col_idx = {name: i for i, name in enumerate(all_features)}
 
+    # Warn about test-set NaN
+    if nan_mask_te.any():
+        for j, feat in enumerate(all_features):
+            n_nan = int(nan_mask_te[:, j].sum())
+            if n_nan > 0:
+                print(f'  WARNING: {feat} has {n_nan:,} NaN rows in test '
+                      f'(filled with 0 after scaling)')
+
+    # Move to device
     out = dict(
         Xtr=torch.tensor(Xtr_sc, dtype=torch.float32, device=device),
         Xva=torch.tensor(Xva_sc, dtype=torch.float32, device=device),
@@ -233,6 +346,10 @@ def prepare_gpu_data(df_train, df_val, df_test, all_features, target, device):
         y_test=y_test,
         scaler=scaler,
         col_idx=col_idx,
+        nan_mask_tr=nan_mask_tr,
+        nan_mask_va=nan_mask_va,
+        nan_mask_ytr=nan_mask_ytr,
+        nan_mask_yva=nan_mask_yva,
     )
 
     if device.type == 'cuda':
@@ -251,8 +368,7 @@ def prepare_gpu_data(df_train, df_val, df_test, all_features, target, device):
     return out
 
 
-
-# === Training ===
+# ── Training ─────────────────────────────────────────────────────────────────
 
 @torch.no_grad()
 def _eval_loss(model, X, Y, loss_fn, amp_dtype, use_amp, device_type):
@@ -265,6 +381,8 @@ def train_one_model(name, feature_cols, *,
                     Xtr, Xva, Xte, ytr, yva, y_test,
                     hw_sse, all_feature_names,
                     device, amp_dtype, use_amp,
+                    nan_mask_tr=None, nan_mask_va=None,
+                    nan_mask_ytr=None, nan_mask_yva=None,
                     seed=42, batch_size=4096, max_epochs=100,
                     patience=25, lr_patience=8, lr_factor=0.3,
                     init_lr=1e-3, warmup_epochs=5,
@@ -272,29 +390,41 @@ def train_one_model(name, feature_cols, *,
     """
     Train a single ANN model on GPU with AMP.
 
-    Parameters
-    ----------
-    name           : model label string
-    feature_cols   : list of column indices into the full feature matrix
-    Xtr, Xva, Xte  : full scaled tensors on GPU (all features)
-    ytr, yva       : target tensors on GPU
-    y_test         : numpy array of test targets
-    hw_sse         : float, analytic benchmark SSE for gain calc
-    all_feature_names : list of all feature name strings
-    device, amp_dtype, use_amp : GPU config
-    Other params   : training hyperparameters
+    NaN-safe: training/validation rows with NaN in this model's feature columns
+    (or target) are excluded.  The FULL test set is always used for evaluation
+    (NaN features were filled with 0 after scaling in prepare_gpu_data).
 
-    Returns
-    -------
-    dict with: name, features, n_features, SSE, RMSE, MAE,
-               gain_vs_hw, epochs, training_time, y_pred, history
+    Returns dict with: name, features, n_features, SSE, RMSE, MAE,
+                       gain_vs_hw, epochs, training_time, y_pred, history
     """
-    Xtr_sub = Xtr[:, feature_cols]
-    Xva_sub = Xva[:, feature_cols]
-    Xte_sub = Xte[:, feature_cols]
+    # ── Per-model NaN filtering for train/val ────────────────────────────
+    if nan_mask_tr is not None:
+        feat_has_nan_tr = nan_mask_tr[:, feature_cols].any(axis=1)
+        if nan_mask_ytr is not None:
+            feat_has_nan_tr = feat_has_nan_tr | nan_mask_ytr
+        valid_tr = torch.tensor(~feat_has_nan_tr, device=device)
+    else:
+        valid_tr = torch.ones(Xtr.shape[0], dtype=torch.bool, device=device)
+
+    if nan_mask_va is not None:
+        feat_has_nan_va = nan_mask_va[:, feature_cols].any(axis=1)
+        if nan_mask_yva is not None:
+            feat_has_nan_va = feat_has_nan_va | nan_mask_yva
+        valid_va = torch.tensor(~feat_has_nan_va, device=device)
+    else:
+        valid_va = torch.ones(Xva.shape[0], dtype=torch.bool, device=device)
+
+    # Subset to this model's features; filter train/val to NaN-clean rows
+    Xtr_sub = Xtr[valid_tr][:, feature_cols]
+    Xva_sub = Xva[valid_va][:, feature_cols]
+    Xte_sub = Xte[:, feature_cols]          # FULL test set — never dropped
+    ytr_sub = ytr[valid_tr]
+    yva_sub = yva[valid_va]
+
     n_feat = len(feature_cols)
     n_tr = Xtr_sub.shape[0]
 
+    # ── Build model ──────────────────────────────────────────────────────
     model = ANN_ReLU(n_feat, neurons=neurons, hidden_layers=hidden_layers,
                      seed=seed).to(device)
     optimizer = torch.optim.Adam(model.parameters(), lr=init_lr)
@@ -312,6 +442,7 @@ def train_one_model(name, feature_cols, *,
 
     t0 = time.perf_counter()
 
+    # ── Training loop ────────────────────────────────────────────────────
     for epoch in range(max_epochs):
         if epoch < warmup_epochs:
             warmup_lr = init_lr * (epoch + 1) / warmup_epochs
@@ -325,10 +456,11 @@ def train_one_model(name, feature_cols, *,
         steps = 0
         for start in range(0, n_tr, batch_size):
             idx = perm[start:start + batch_size]
-            xb, yb = Xtr_sub[idx], ytr[idx]
+            xb, yb = Xtr_sub[idx], ytr_sub[idx]
 
             optimizer.zero_grad(set_to_none=True)
-            with torch.autocast(device_type=device_type, dtype=amp_dtype, enabled=use_amp):
+            with torch.autocast(device_type=device_type, dtype=amp_dtype,
+                                enabled=use_amp):
                 loss = loss_fn(model(xb), yb)
             scaler.scale(loss).backward()
             scaler.step(optimizer)
@@ -337,7 +469,7 @@ def train_one_model(name, feature_cols, *,
             steps += 1
 
         val_loss = _eval_loss(
-            model, Xva_sub, yva, loss_fn, amp_dtype, use_amp, device_type
+            model, Xva_sub, yva_sub, loss_fn, amp_dtype, use_amp, device_type
         )
         train_loss = running / max(steps, 1)
         hist_loss.append(train_loss)
@@ -358,6 +490,7 @@ def train_one_model(name, feature_cols, *,
     training_time = time.perf_counter() - t0
     ep = len(hist_loss)
 
+    # ── Evaluate on FULL test set ────────────────────────────────────────
     model.load_state_dict(best_state)
     model.eval()
     with torch.no_grad(), torch.autocast(
@@ -387,9 +520,7 @@ def train_one_model(name, feature_cols, *,
 
 
 def train_feature_sweep(feature_combos, *, col_idx, train_kwargs, print_every=25):
-    """
-    Train all feature combos and return results dict + elapsed seconds.
-    """
+    """Train all feature combos and return (results_dict, elapsed_seconds)."""
     all_results = {}
     t_global = time.time()
 
@@ -415,10 +546,10 @@ def train_feature_sweep(feature_combos, *, col_idx, train_kwargs, print_every=25
     return all_results, elapsed_s
 
 
+# ── Results persistence ──────────────────────────────────────────────────────
+
 def build_results_frame(all_results):
-    """
-    Convert model results dict into ranked DataFrame.
-    """
+    """Convert model results dict into a ranked DataFrame."""
     rows = []
     for name, result in all_results.items():
         rows.append({
@@ -443,7 +574,7 @@ def save_colab_run(run_dir, *, y_test, hw, models):
     history_dir.mkdir(parents=True, exist_ok=True)
     yt = np.asarray(y_test).ravel()
 
-    # metrics summary
+    # ── metrics summary ──────────────────────────────────────────────────
     summary_rows = []
     hw_met = metrics(yt, hw['y_pred'])
     hw_met['Model'] = 'Analytic'
@@ -461,7 +592,10 @@ def save_colab_run(run_dir, *, y_test, hw, models):
         met['Model'] = name
         met['Training_time'] = f"{result['training_time']:.1f}s"
         met['Gain_vs_Analytic'] = f"{gain(met['SSE'], hw_met['SSE']) * 100:.2f}%"
-        met['Gain_Incremental'] = None if first_model else f"{gain(met['SSE'], prev_sse) * 100:.2f}%"
+        met['Gain_Incremental'] = (
+            None if first_model
+            else f"{gain(met['SSE'], prev_sse) * 100:.2f}%"
+        )
         summary_rows.append(met)
         prev_sse = met['SSE']
         first_model = False
@@ -474,7 +608,8 @@ def save_colab_run(run_dir, *, y_test, hw, models):
             'loss': result['history']['loss'],
             'val_loss': result['history']['val_loss'],
         }).to_csv(history_dir / f'{safe_name}_history.csv', index=False)
-        torch.save(result['model'].state_dict(), history_dir / f'{safe_name}_weights.pt')
+        torch.save(result['model'].state_dict(),
+                   history_dir / f'{safe_name}_weights.pt')
 
     total_row = {col: None for col in summary_rows[0]}
     total_row['Model'] = 'Total'
@@ -486,14 +621,16 @@ def save_colab_run(run_dir, *, y_test, hw, models):
     summary = pd.DataFrame(summary_rows)[col_order]
     summary.to_csv(run_dir / 'metrics_summary.csv', index=False)
 
-    # residual diagnostics
+    # ── residual diagnostics ─────────────────────────────────────────────
     diag_rows = [residual_diagnostics(yt, hw['y_pred'], label='Analytic')]
     for name, result in models.items():
         diag_rows.append(residual_diagnostics(yt, result['y_pred'], label=name))
-    pd.DataFrame(diag_rows).to_csv(run_dir / 'residual_diagnostics.csv', index=False)
+    pd.DataFrame(diag_rows).to_csv(run_dir / 'residual_diagnostics.csv',
+                                   index=False)
 
-    # exploration ranking table
+    # ── exploration ranking table ────────────────────────────────────────
     df_results = build_results_frame(models)
-    df_results.to_csv(history_dir / 'feature_exploration_results.csv', index=False)
+    df_results.to_csv(history_dir / 'feature_exploration_results.csv',
+                      index=False)
 
     return summary, df_results
