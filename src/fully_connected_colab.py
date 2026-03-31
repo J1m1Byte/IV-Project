@@ -494,6 +494,6 @@ def save_colab_run(run_dir, *, y_test, hw, models):
 
     # exploration ranking table
     df_results = build_results_frame(models)
-    df_results.to_csv(run_dir / 'feature_exploration_results.csv', index=False)
+    df_results.to_csv(history_dir / 'feature_exploration_results.csv', index=False)
 
     return summary, df_results

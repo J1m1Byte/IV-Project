@@ -144,12 +144,12 @@ def save_run(run_dir, y_test, hw, models: dict) -> pd.DataFrame:
 
     Files written
     -------------
-    metrics_summary.csv         full metrics table + gains + training time
-    residual_diagnostics.csv    per-model residual stats
-    <name>.keras                Keras model weights
-    <name>_scaler.pkl           fitted scaler
-    <name>_predictions.npy      test-set predictions
-    <name>_history.csv          training loss per epoch
+    metrics_summary.csv                     full metrics table + gains + training time
+    residual_diagnostics.csv                per-model residual stats
+    train-history/<name>.keras              Keras model weights
+    train-history/<name>_scaler.pkl         fitted scaler
+    train-history/<name>_predictions.npy    test-set predictions
+    train-history/<name>_history.csv        training loss per epoch
 
     Returns
     -------
@@ -158,6 +158,8 @@ def save_run(run_dir, y_test, hw, models: dict) -> pd.DataFrame:
     from src.metrics import metrics, gain, residual_diagnostics
 
     run_dir = Path(run_dir)
+    history_dir = run_dir / "train-history"
+    history_dir.mkdir(parents=True, exist_ok=True)
     yt = np.asarray(y_test).ravel()
 
     # --- metrics summary ---
@@ -187,18 +189,18 @@ def save_run(run_dir, y_test, hw, models: dict) -> pd.DataFrame:
         total_time += result["training_time"]
 
         # per-model artifacts
-        result["model"].save(str(run_dir / f"{name}.keras"))
+        result["model"].save(str(history_dir / f"{name}.keras"))
 
-        with open(run_dir / f"{name}_scaler.pkl", "wb") as f:
+        with open(history_dir / f"{name}_scaler.pkl", "wb") as f:
             pickle.dump(result["scaler"], f)
 
-        np.save(run_dir / f"{name}_predictions.npy", result["y_pred"])
+        np.save(history_dir / f"{name}_predictions.npy", result["y_pred"])
 
         pd.DataFrame({
             "epoch":    range(1, len(result["history"]["loss"]) + 1),
             "loss":     result["history"]["loss"],
             "val_loss": result["history"]["val_loss"],
-        }).to_csv(run_dir / f"{name}_history.csv", index=False)
+        }).to_csv(history_dir / f"{name}_history.csv", index=False)
 
     # total training time row
     total_row = {col: None for col in rows[0]}
