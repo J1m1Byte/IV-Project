@@ -126,6 +126,8 @@ output/**/*.keras
 outputs/**/*.pkl
 outputs/.DS_Store
 outputs/**/.DS_Store
+**/train-history/
+**/train-history/**
 
 # Ignore test folder
 /test
