@@ -129,15 +129,11 @@ outputs/**/.DS_Store
 **/train-history/
 **/train-history/**
 
-# Ignore test folder
-/test
 
-#
+/test
 /.claude
 CLAUDE.md
-
-#
 backup/
-
-# 
 *.pt
+notebook/model/archive
+output/archive
