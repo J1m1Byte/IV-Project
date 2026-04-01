@@ -19,6 +19,11 @@
 | `1.1-fc-rand-B.ipynb` | `rand_B` | `output/1.1-fc-rand-B/01-run` |
 | `1.2-fc-rand-C.ipynb` | `rand_C` | `output/1.2-fc-rand-C/01-run` |
 | `1.3-fc-rand-D.ipynb` | `rand_D` | `output/1.3-fc-rand-D/01-run` |
+| `3.1-lstm-rand-C-colab.ipynb` | `rand_C` | `output/3.1-lstm-rand-C-colab` |
+| `3.2-gru-rand-A-colab.ipynb` | `rand_A` | `output/3.2-gru-rand-A-colab` |
+| `3.3-gru-rand-C-colab.ipynb` | `rand_C` | `output/3.3-gru-rand-C-colab` |
+| `3.4-tft-rand-A-colab.ipynb` | `rand_A` | `output/3.4-tft-rand-A-colab` |
+| `3.5-tft-rand-C-colab-1.ipynb` | `rand_C` | `output/3.5-tft-rand-C-colab` |
 
 
 ## Data Pipeline
@@ -213,6 +218,77 @@ Common setup in `2.0-fc-rand-A-colab` through `2.3-fc-rand-D-colab`:
 | `3F+vix_lag+iv_lag+vega` | 8.249505 | 0.000068 | 0.008276 | 0.005660 | 0.001211 | 0.004139 | 0.138075 | 12.7s | 1.49% | 11.05% |
 
 
+
+## 3.x Sequence Model Setup
+
+Common setup in `3.1-lstm-rand-C-colab` through `3.5-tft-rand-*-colab`:
+
+- Model families: LSTM, GRU, TFT
+- Data style: random-split sequence models on `rand_A` and `rand_C`
+- Lookback window: `20`
+- Max epochs: `100`
+- Early stopping patience: `25`
+- Warmup: `5` epochs
+- Target: `d_iv`
+- Feature sets:
+  - `4F`: `delta`, `T`, `spy_ret`, `vix_lag`
+  - `5F`: `delta`, `T`, `spy_ret`, `vix_lag`, `iv_lag`
+  - `6F`: `delta`, `T`, `spy_ret`, `vix_lag`, `iv_lag`, `d_iv_lag`
+  - `8F`: `delta`, `T`, `spy_ret`, `vix_lag`, `iv_lag`, `d_iv_lag`, `gamma`, `rho`
+- Baseline: Hull-White analytic benchmark
+- Table rule below: keep only the first analytic row as `Analytic`; do not repeat later analytic rows
+
+### Results
+
+#### `3.1-lstm-rand-C-colab`
+
+| Model | SSE | MSE | RMSE | MAE | MeanError | MedianAE | R2 | Training_time | Gain_vs_Analytic |
+|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|
+| `Analytic` | 17.891375 | 0.000107 | 0.010360 | 0.004405 | 0.000770 | 0.002271 | 0.100868 |  |  |
+| `4F` | 4.990499 | 0.000030 | 0.005471 | 0.002198 | -0.000143 | 0.001327 | 0.749202 | 871.1s | 72.11% |
+| `5F` | 1.177748 | 0.000007 | 0.002658 | 0.001572 | -0.000035 | 0.001022 | 0.940812 | 836.9s | 93.42% |
+| `6F` | 1.186808 | 0.000007 | 0.002684 | 0.001558 | 0.000073 | 0.001008 | 0.938483 | 836.4s | 93.17% |
+| `8F` | 0.336354 | 0.000002 | 0.001429 | 0.000785 | -0.000060 | 0.000500 | 0.982566 | 854.3s | 98.06% |
+
+#### `3.2-gru-rand-A-colab`
+
+| Model | SSE | MSE | RMSE | MAE | MeanError | MedianAE | R2 | Training_time | Gain_vs_Analytic |
+|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|
+| `Analytic` | 34.862591 | 0.000137 | 0.011703 | 0.004686 | 0.000977 | 0.002174 | 0.097335 |  |  |
+| `4F` | 10.398916 | 0.000041 | 0.006391 | 0.002754 | 0.000100 | 0.001523 | 0.730750 | 1108.9s | 70.17% |
+| `5F` | 2.725460 | 0.000011 | 0.003272 | 0.001971 | 0.000060 | 0.001251 | 0.929432 | 1021.4s | 92.18% |
+| `6F` | 2.439524 | 0.000010 | 0.003116 | 0.001826 | 0.000108 | 0.001143 | 0.935379 | 930.2s | 92.83% |
+| `8F` | 0.315054 | 0.000001 | 0.001120 | 0.000558 | 0.000030 | 0.000297 | 0.991655 | 1025.0s | 99.07% |
+
+#### `3.3-gru-rand-C-colab`
+
+| Model | SSE | MSE | RMSE | MAE | MeanError | MedianAE | R2 | Training_time | Gain_vs_Analytic |
+|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|
+| `Analytic` | 17.891375 | 0.000107 | 0.010360 | 0.004405 | 0.000770 | 0.002271 | 0.100868 |  |  |
+| `4F` | 5.111166 | 0.000031 | 0.005537 | 0.002228 | 0.000099 | 0.001359 | 0.743138 | 855.9s | 71.43% |
+| `5F` | 1.341453 | 0.000008 | 0.002837 | 0.001710 | -0.000066 | 0.001145 | 0.932585 | 793.0s | 92.50% |
+| `6F` | 1.270033 | 0.000008 | 0.002777 | 0.001675 | 0.000213 | 0.001123 | 0.934170 | 830.0s | 92.69% |
+| `8F` | 0.216374 | 0.000001 | 0.001146 | 0.000606 | 0.000063 | 0.000362 | 0.988785 | 815.7s | 98.75% |
+
+#### `3.4-tft-rand-A-colab`
+
+| Model | SSE | MSE | RMSE | MAE | MeanError | MedianAE | R2 | Training_time | Gain_vs_Analytic |
+|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|
+| `Analytic` | 34.862591 | 0.000137 | 0.011703 | 0.004686 | 0.000977 | 0.002174 | 0.097335 |  |  |
+| `4F` | 11.848680 | 0.000047 | 0.006822 | 0.003109 | -0.000243 | 0.001794 | 0.693213 | 1246.5s | 66.01% |
+| `5F` | 1.549968 | 0.000006 | 0.002468 | 0.001472 | 0.000069 | 0.000941 | 0.959868 | 1827.3s | 95.55% |
+| `6F` | 2.821856 | 0.000011 | 0.003351 | 0.002069 | -0.000243 | 0.001340 | 0.925252 | 1750.6s | 91.71% |
+| `8F` | 0.325628 | 0.000001 | 0.001138 | 0.000706 | -0.000031 | 0.000438 | 0.991374 | 1909.8s | 99.04% |
+
+#### `3.5-tft-rand-C-colab`
+
+| Model | SSE | MSE | RMSE | MAE | MeanError | MedianAE | R2 | Training_time | Gain_vs_Analytic |
+|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|
+| `Analytic` | 17.891375 | 0.000107 | 0.010360 | 0.004405 | 0.000770 | 0.002271 | 0.100868 |  |  |
+| `4F` | 4.300082 | 0.000026 | 0.005079 | 0.002180 | -0.000325 | 0.001352 | 0.783899 | 1413.9s | 75.97% |
+| `5F` | 0.521975 | 0.000003 | 0.001770 | 0.001045 | 0.000046 | 0.000679 | 0.973768 | 1592.1s | 97.08% |
+| `6F` | 0.498316 | 0.000003 | 0.001739 | 0.000999 | 0.000056 | 0.000631 | 0.974170 | 1744.7s | 97.13% |
+| `8F` | 0.170259 | 0.000001 | 0.001017 | 0.000646 | -0.000023 | 0.000392 | 0.991175 | 2081.9s | 99.02% |
 
 # Feature Definitions
 

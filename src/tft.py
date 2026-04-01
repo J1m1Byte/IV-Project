@@ -93,7 +93,7 @@ class VariableSelectionNetwork(nn.Module):
 
     def forward(self, x):
         # x: (batch, seq_len, n_features)
-        B, T, F = x.shape
+        B, T, _ = x.shape
 
         # Process each feature through its own GRN
         processed = []
