@@ -19,11 +19,11 @@
 | `1.1-fc-rand-B.ipynb` | `rand_B` | `output/1.1-fc-rand-B/01-run` |
 | `1.2-fc-rand-C.ipynb` | `rand_C` | `output/1.2-fc-rand-C/01-run` |
 | `1.3-fc-rand-D.ipynb` | `rand_D` | `output/1.3-fc-rand-D/01-run` |
-| `3.1-lstm-rand-C-colab.ipynb` | `rand_C` | `output/3.1-lstm-rand-C-colab` |
-| `3.2-gru-rand-A-colab.ipynb` | `rand_A` | `output/3.2-gru-rand-A-colab` |
-| `3.3-gru-rand-C-colab.ipynb` | `rand_C` | `output/3.3-gru-rand-C-colab` |
-| `3.4-tft-rand-A-colab.ipynb` | `rand_A` | `output/3.4-tft-rand-A-colab` |
-| `3.5-tft-rand-C-colab-1.ipynb` | `rand_C` | `output/3.5-tft-rand-C-colab` |
+| `3.1-lstm-rand-C-colab.ipynb` | `chro_C` | `output/3.1-lstm-rand-C-colab` |
+| `3.2-gru-rand-A-colab.ipynb` | `chro_A` | `output/3.2-gru-rand-A-colab` |
+| `3.3-gru-rand-C-colab.ipynb` | `chro_C` | `output/3.3-gru-rand-C-colab` |
+| `3.4-tft-rand-A-colab.ipynb` | `chro_A` | `output/3.4-tft-rand-A-colab` |
+| `3.5-tft-rand-C-colab-1.ipynb` | `chro_C` | `output/3.5-tft-rand-C-colab` |
 
 
 ## Data Pipeline
@@ -224,7 +224,7 @@ Common setup in `2.0-fc-rand-A-colab` through `2.3-fc-rand-D-colab`:
 Common setup in `3.1-lstm-rand-C-colab` through `3.5-tft-rand-*-colab`:
 
 - Model families: LSTM, GRU, TFT
-- Data style: random-split sequence models on `rand_A` and `rand_C`
+- Data used: chronological split sequence models on `chro_A` and `chro_C`
 - Lookback window: `20`
 - Max epochs: `100`
 - Early stopping patience: `25`
