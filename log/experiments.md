@@ -19,10 +19,7 @@
 | `1.1-fc-rand-B.ipynb` | `rand_B` | `output/1.1-fc-rand-B/01-run` |
 | `1.2-fc-rand-C.ipynb` | `rand_C` | `output/1.2-fc-rand-C/01-run` |
 | `1.3-fc-rand-D.ipynb` | `rand_D` | `output/1.3-fc-rand-D/01-run` |
-| `1.4-fc-chro-A.ipynb` | `chro_A` | `output/1.4-fc-chro-A/01-run` |
-| `1.5-fc-chro-B.ipynb` | `chro_B` | `output/1.5-fc-chro-B/01-run` |
-| `1.6-fc-chro-C.ipynb` | `chro_C` | `output/1.6-fc-chro-C/01-run` |
-| `1.7-fc-chro-D.ipynb` | `chro_D` | `output/1.7-fc-chro-D/01-run` |
+
 
 ## Data Pipeline
 
@@ -111,7 +108,7 @@ Final export:
   - `D`: `2023-01-01` to `2026-01-30`
 - Creates both:
   - random split (`train_test_split`, 70/20/10 with `random_state=42`)
-  - chronological split (first 70%, next 20%, last 10%)
+  - chronological split (first 70%, next 20%, last 10%) - **not using this date set**
 - Saves `24` files into `data/clean/` (`rand_*` and `chro_*`, each with train/val/test).
 
 Saved row counts reported by notebook:
@@ -119,17 +116,13 @@ Saved row counts reported by notebook:
 | Dataset | Train | Val | Test |
 |---|---:|---:|---:|
 | `rand_A` | 2,652,048 | 757,728 | 378,865 |
-| `chro_A` | 2,652,048 | 757,728 | 378,865 |
 | `rand_B` | 911,172 | 260,336 | 130,168 |
-| `chro_B` | 911,173 | 260,335 | 130,168 |
 | `rand_C` | 1,716,781 | 490,509 | 245,255 |
-| `chro_C` | 1,716,781 | 490,509 | 245,255 |
 | `rand_D` | 843,153 | 240,901 | 120,451 |
-| `chro_D` | 843,153 | 240,901 | 120,451 |
 
-## Model Setup (1.x FC notebooks)
+## 1.x FC Model Setup
 
-Common setup in `1.0-fc-rand-A` through `1.7-fc-chro-D`:
+Common setup in `1.0-fc-rand-A` through `1.3-fc-rand-D`:
 
 - Framework: TensorFlow/Keras
 - Architecture: `3` hidden layers x `80` units, `relu`, linear output
@@ -144,7 +137,7 @@ Common setup in `1.0-fc-rand-A` through `1.7-fc-chro-D`:
 - Target: `d_iv`
 - Baseline: Hull-White analytic benchmark from `src/benchmark.py`
 
-## Results (saved run folders)
+## Results
 
 | Model | Data used in notebook | Analytic SSE | 3F SSE | 3F Gain vs Analytic | 4F SSE | 4F Gain vs Analytic | 4F Gain vs 3F |
 |---|---|---:|---:|---:|---:|---:|---:|
@@ -152,7 +145,38 @@ Common setup in `1.0-fc-rand-A` through `1.7-fc-chro-D`:
 | `1.1-fc-rand-B` | `rand_B` | 38.6267 | 35.1879 | 8.90% | 29.7183 | 23.06% | 15.54% |
 | `1.2-fc-rand-C` | `rand_C` | 64.9134 | 57.3609 | 11.63% | 43.0808 | 33.63% | 24.90% |
 | `1.3-fc-rand-D` | `rand_D` | 8.3745 | 7.8642 | 6.09% | 6.8504 | 18.20% | 12.89% |
-| `1.4-fc-chro-A` | `chro_A` | 18.6509 | 35.9324 | -92.66% | 81.6229 | -337.63% | -127.16% |
-| `1.5-fc-chro-B` | `chro_B` | 8.3627 | 8.6494 | -3.43% | 8.5013 | -1.66% | 1.71% |
-| `1.6-fc-chro-C` | `chro_C` | 10.1677 | 16.6448 | -63.70% | 13.2512 | -30.33% | 20.39% |
-| `1.7-fc-chro-D` | `chro_D` | 5.9454 | 6.0074 | -1.04% | 6.8124 | -14.58% | -13.40% |
+
+
+
+
+# Feature Definitions
+
+| Feature | Formula | Description |
+|---------|---------|-------------|
+| `delta` | $\Delta = \frac{\partial C}{\partial S}$ | Option delta (moneyness proxy) |
+| `T` | $T = \frac{\text{days to expiry}}{365}$ | Time to maturity in years |
+| `spy_ret` | $r_t = \frac{S_t - S_{t-1}}{S_{t-1}}$ | Daily SPY return |
+| `vix_lag` | $\text{VIX}_{t-1}$ | Previous day VIX level |
+| `iv_lag` | $\sigma^{\text{IV}}_{t-1}$ | Previous day implied volatility |
+| `vix_mom` | $\text{VIX}_t - \text{VIX}_{t-1}$ | VIX daily momentum |
+| `vix_mom_lag` | $\text{VIX}_{t-1} - \text{VIX}_{t-2}$ | Lagged VIX momentum |
+| `gamma` | $\Gamma = \frac{\partial^2 C}{\partial S^2}$ | Option gamma (convexity) |
+| `d_iv_lag` | $\Delta\sigma^{\text{IV}}_{t-1}$ | Lagged change in IV (autoregressive term) |
+| `spread` | $\text{ask} - \text{bid}$ | Bid-ask spread |
+| `abs_spy_ret` | $\lvert r_t \rvert$ | Absolute daily return (realized vol proxy) |
+| `ret_over_sqrtT` | $\frac{r_t}{\sqrt{T}}$ | Return scaled by sqrt(T) (analytic interaction) |
+| `log_oi` | $\log(\text{open interest} + 1)$ | Log open interest (liquidity) |
+| `log_volume` | $\log(\text{volume} + 1)$ | Log volume (liquidity) |
+| `theta` | $\Theta = \frac{\partial C}{\partial t}$ | Option theta (time decay) |
+| `vega` | $\mathcal{V} = \frac{\partial C}{\partial \sigma}$ | Option vega (IV sensitivity) |
+| `rho` | $\rho = \frac{\partial C}{\partial r}$ | Option rho (interest rate sensitivity) |
+| `log_moneyness` | $\log\!\left(\frac{S}{K}\right)$ | Log spot-to-strike ratio |
+| `d_iv` | $\sigma^{\text{IV}}_t - \sigma^{\text{IV}}_{t-1}$ | **Target**: daily change in IV |
+
+## Gain Formulas
+
+$$\text{Gain vs Analytic} = \left(1 - \frac{SSE_{model}}{SSE_{analytic}}\right) \times 100$$
+
+$$\text{Gain vs 3F} = \left(1 - \frac{SSE_{model}}{SSE_{3F}}\right) \times 100$$
+
+$$\text{Gain vs 4F} = \left(1 - \frac{SSE_{model}}{SSE_{4F}}\right) \times 100$$
