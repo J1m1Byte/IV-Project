@@ -137,3 +137,6 @@ backup/
 *.pt
 notebook/model/archive
 output/archive
+
+#
+/slide

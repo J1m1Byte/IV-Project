@@ -316,8 +316,8 @@ Common setup in `3.1-lstm-rand-C-colab` through `3.5-tft-rand-*-colab`:
 
 ## Gain Formulas
 
-$$\text{Gain vs Analytic} = \left(1 - \frac{SSE_{model}}{SSE_{analytic}}\right) \times 100$$
+$\text{Gain vs Analytic} = \left(1 - \frac{SSE_{model}}{SSE_{analytic}}\right) \times 100$
 
-$$\text{Gain vs 3F} = \left(1 - \frac{SSE_{model}}{SSE_{3F}}\right) \times 100$$
+$\text{Gain vs 3F} = \left(1 - \frac{SSE_{model}}{SSE_{3F}}\right) \times 100$
 
-$$\text{Gain vs 4F} = \left(1 - \frac{SSE_{model}}{SSE_{4F}}\right) \times 100$$
+$\text{Gain vs 4F} = \left(1 - \frac{SSE_{model}}{SSE_{4F}}\right) \times 100$
