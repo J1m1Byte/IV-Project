@@ -601,7 +601,7 @@ def save_colab_run(run_dir, *, y_test, hw, models):
         first_model = False
         total_time += result['training_time']
 
-        safe_name = name.replace('+', '_')
+        safe_name = name.replace(' + ', '_')
         np.save(history_dir / f'{safe_name}_predictions.npy', result['y_pred'])
         pd.DataFrame({
             'epoch': range(1, result['epochs'] + 1),
