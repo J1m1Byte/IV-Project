@@ -9,3 +9,4 @@ INTERIM_DATA = DATA / 'interim'
 CLEAN_DATA = DATA / 'clean'
 
 OUTPUT = ROOT / 'output'
+FIG_OUTPUT = OUTPUT / 'fig'
