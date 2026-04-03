@@ -45,28 +45,20 @@ LOOKBACK = 20
 MIN_STEPS_PER_EPOCH = 50
 
 FEATURE_SETS = {
-    # ── Original series-3 sets ────────────────────────────────────────────────
-    '4F': ['delta', 'T', 'spy_ret', 'vix_lag'],
-    '5F': ['delta', 'T', 'spy_ret', 'vix_lag', 'iv_lag'],
-    '6F': ['delta', 'T', 'spy_ret', 'vix_lag', 'iv_lag', 'd_iv_lag'],
-    '8F': ['delta', 'T', 'spy_ret', 'vix_lag', 'iv_lag', 'd_iv_lag', 'gamma', 'rho'],
+    # ── 3F base ───────────────────────────────────────────────────────────────
+    '3F':    ['delta', 'T', 'spy_ret'],
 
-    # ── Recommended sets from FC gain analysis (2.x-avg-feature-gain-A-B-C) ──
-    # FC rank-1 combo: gamma+theta+vix_lag+vix_mom+vix_mom_lag (avg gain 38.96%).
-    # theta replaces rho (stronger in FC); vix_mom+vix_mom_lag add explicit VIX
-    # momentum on top of the raw vix_lag level.
-    # Use when: you want the full recommended set. Best starting point for all
-    # three architectures. If LSTM/GRU already capture momentum from the lookback
-    # sequence, vix_mom/vix_mom_lag may be partially redundant — compare vs 6F_GT.
-    '8F_GT': ['delta', 'T', 'spy_ret', 'gamma', 'theta',
-               'vix_lag', 'vix_mom', 'vix_mom_lag'],
+    # ── 3F + 2 (vix_lag, vix_mom_lag) ────────────────────────────────────────
+    '5F':    ['delta', 'T', 'spy_ret', 'vix_lag', 'vix_mom_lag'],
 
-    # Lean version of the above (FC rank-16 with gamma+theta+vix_lag, avg gain
-    # 30.36%). Drops vix_mom and vix_mom_lag under the hypothesis that sequence
-    # models derive momentum implicitly from the LOOKBACK=20 window.
-    # Use when: testing whether explicit momentum features add value over what
-    # the recurrent/attention architecture already learns from the sequence.
-    '6F_GT': ['delta', 'T', 'spy_ret', 'gamma', 'theta', 'vix_lag'],
+    # ── 3F + 3 variants ───────────────────────────────────────────────────────
+    '6F_G':  ['delta', 'T', 'spy_ret', 'vix_lag', 'vix_mom_lag', 'gamma'],
+    '6F_R':  ['delta', 'T', 'spy_ret', 'vix_lag', 'vix_mom_lag', 'rho'],
+    '6F_T':  ['delta', 'T', 'spy_ret', 'vix_lag', 'vix_mom_lag', 'theta'],
+
+    # ── 3F + 5 variants ───────────────────────────────────────────────────────
+    '8F_GT': ['delta', 'T', 'spy_ret', 'vix_lag', 'vix_mom', 'vix_mom_lag', 'gamma', 'theta'],
+    '8F_GR': ['delta', 'T', 'spy_ret', 'vix_lag', 'vix_mom', 'vix_mom_lag', 'gamma', 'rho'],
 }
 TARGET = 'd_iv'
 

@@ -27,10 +27,20 @@ LOOKBACK = 20
 MIN_STEPS_PER_EPOCH = 50
 
 FEATURE_SETS = {
-    '4F': ['delta', 'T', 'spy_ret', 'vix_lag'],
-    '5F': ['delta', 'T', 'spy_ret', 'vix_lag', 'iv_lag'],
-    '6F': ['delta', 'T', 'spy_ret', 'vix_lag', 'iv_lag', 'd_iv_lag'],
-    '8F': ['delta', 'T', 'spy_ret', 'vix_lag', 'iv_lag', 'd_iv_lag', 'gamma', 'rho'],
+    # ── 3F base ───────────────────────────────────────────────────────────────
+    '3F':    ['delta', 'T', 'spy_ret'],
+
+    # ── 3F + 2 (vix_lag, vix_mom_lag) ────────────────────────────────────────
+    '5F':    ['delta', 'T', 'spy_ret', 'vix_lag', 'vix_mom_lag'],
+
+    # ── 3F + 3 variants ───────────────────────────────────────────────────────
+    '6F_G':  ['delta', 'T', 'spy_ret', 'vix_lag', 'vix_mom_lag', 'gamma'],
+    '6F_R':  ['delta', 'T', 'spy_ret', 'vix_lag', 'vix_mom_lag', 'rho'],
+    '6F_T':  ['delta', 'T', 'spy_ret', 'vix_lag', 'vix_mom_lag', 'theta'],
+
+    # ── 3F + 5 variants ───────────────────────────────────────────────────────
+    '8F_GT': ['delta', 'T', 'spy_ret', 'vix_lag', 'vix_mom', 'vix_mom_lag', 'gamma', 'theta'],
+    '8F_GR': ['delta', 'T', 'spy_ret', 'vix_lag', 'vix_mom', 'vix_mom_lag', 'gamma', 'rho'],
 }
 TARGET = 'd_iv'
 
