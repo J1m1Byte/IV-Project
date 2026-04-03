@@ -257,6 +257,114 @@ def assign_sequences_to_splits(
     return result
 
 
+# ── Cached split structure (avoids redundant sort/merge across feature sets) ─
+
+def precompute_split_structure(df_full, df_train, df_val, df_test,
+                               target=TARGET, lookback=LOOKBACK):
+    """
+    Precompute sorted dataframe, split assignments, and valid sequence
+    windows once per dataset.  Call this once, then pass the returned
+    cache to ``build_sequences_from_cache()`` for each feature set.
+
+    The heavy work (sort → merge → group boundary scan → target/split
+    validation) is done here so it is never repeated.
+
+    Returns
+    -------
+    dict  –  opaque cache consumed by ``build_sequences_from_cache``.
+    """
+    keys = ['date', 'k', 'expiration']
+
+    df = df_full.copy()
+    df = df.sort_values(SORT_KEYS).reset_index(drop=True)
+
+    lookup = build_split_index_fast(df_train, df_val, df_test)
+    df = df.merge(lookup, on=keys, how='left')
+
+    target_arr = df[target].values.astype(np.float32)
+    split_arr  = df['_split'].values                    # 'train'|'val'|'test'|NaN
+    group_ids  = df.groupby(GROUP_KEYS, sort=False).ngroup().values
+
+    # ── group boundaries ────────────────────────────────────────────
+    n = len(df)
+    boundaries = []
+    if n > 0:
+        prev_gid = group_ids[0]
+        group_start = 0
+        for i in range(1, n + 1):
+            gid = group_ids[i] if i < n else -2
+            if gid != prev_gid:
+                boundaries.append((group_start, i))
+                group_start = i
+            prev_gid = gid
+
+    # ── valid windows (target non-NaN & split assigned) ─────────────
+    # Pre-filtering these avoids repeating the check for every feature set.
+    valid_windows = []          # list of (seq_start, target_idx, split_label)
+    for gs, ge in boundaries:
+        if ge - gs < lookback:
+            continue
+        for j in range(gs + lookback - 1, ge):
+            s = split_arr[j]
+            if s not in ('train', 'val', 'test'):
+                continue
+            if np.isnan(target_arr[j]):
+                continue
+            valid_windows.append((j - lookback + 1, j, s))
+
+    return {
+        'df': df,
+        'target_arr': target_arr,
+        'valid_windows': valid_windows,
+        'lookback': lookback,
+    }
+
+
+def build_sequences_from_cache(cache, feature_cols):
+    """
+    Build train/val/test sequence arrays for *feature_cols* using a
+    pre-computed split structure (from ``precompute_split_structure``).
+
+    Only the per-feature-set work is done here: extracting the feature
+    array and checking for NaN in feature columns.
+
+    Returns the same dict shape as ``assign_sequences_to_splits``.
+    """
+    df         = cache['df']
+    target_arr = cache['target_arr']
+    valid_windows = cache['valid_windows']
+    lookback   = cache['lookback']
+
+    feat_arr = df[feature_cols].values.astype(np.float32)
+
+    seqs = {s: ([], []) for s in ('train', 'val', 'test')}
+    test_global_indices = []
+
+    for seq_start, j, split_label in valid_windows:
+        seq_features = feat_arr[seq_start:j + 1]       # (lookback, n_feat)
+        if np.isnan(seq_features).any():
+            continue
+        seqs[split_label][0].append(seq_features)
+        seqs[split_label][1].append(target_arr[j])
+        if split_label == 'test':
+            test_global_indices.append(j)
+
+    result = {}
+    for split_name in ('train', 'val', 'test'):
+        X_list, y_list = seqs[split_name]
+        if len(X_list) > 0:
+            result[f'X_{split_name}'] = np.stack(X_list)
+            result[f'y_{split_name}'] = np.array(y_list, dtype=np.float32)
+        else:
+            n_feat = len(feature_cols)
+            result[f'X_{split_name}'] = np.empty((0, lookback, n_feat), dtype=np.float32)
+            result[f'y_{split_name}'] = np.empty((0,), dtype=np.float32)
+
+    result['test_indices'] = np.array(test_global_indices, dtype=np.int64)
+    result['df_sorted'] = df
+    return result
+
+
 # ── Scaling ─────────────────────────────────────────────────────────────────
 
 def scale_sequences(X_train, X_val, X_test):
