@@ -20,7 +20,6 @@ Approach:
      (last row of the window) to the split partition.
 """
 
-import gc
 import time
 from pathlib import Path
 
@@ -28,7 +27,7 @@ import numpy as np
 import pandas as pd
 import torch
 import torch.nn as nn
-from torch.utils.data import Dataset, DataLoader
+from torch.utils.data import Dataset
 from sklearn.preprocessing import StandardScaler
 
 from src.metrics import gain, metrics, residual_diagnostics
@@ -45,21 +44,29 @@ LOOKBACK = 20
 MIN_STEPS_PER_EPOCH = 50
 
 FEATURE_SETS = {
-    # ── 3F base ───────────────────────────────────────────────────────────────
-    '3F':    ['delta', 'T', 'spy_ret'],
+    # ── 3F (base) ───────────────────────────────────────────────────────────────
+    '3F':               ['delta', 'T', 'spy_ret'],
+    '3F+iv_lag':        ['delta', 'T', 'spy_ret', 'iv_lag'],
+    
+    # ── 4F (3F +vix_lag) ──────────────────────────────────────────────────────────
+    '4F':               ['delta', 'T', 'spy_ret', 'vix_lag'],
+    '4F+iv_lag':        ['delta', 'T', 'spy_ret', 'vix_lag', 'iv_lag'],
 
-    # ── 3F + 2 (vix_lag, vix_mom_lag) ────────────────────────────────────────
-    '5F':    ['delta', 'T', 'spy_ret', 'vix_lag', 'vix_mom_lag'],
+    # ── 6F (4F +vix_mom_lag +gamma/theta/rho) ───────────────────────────────────────
+    '6F_gamma':         ['delta', 'T', 'spy_ret', 'vix_lag', 'vix_mom_lag', 'gamma'],
+    '6F_gamma+iv_lag':  ['delta', 'T', 'spy_ret', 'vix_lag', 'vix_mom_lag', 'gamma', 'iv_lag'],
+    
+    '6F_theta':         ['delta', 'T', 'spy_ret', 'vix_lag', 'vix_mom_lag', 'theta'],
+    '6F_theta+iv_lag':  ['delta', 'T', 'spy_ret', 'vix_lag', 'vix_mom_lag', 'theta', 'iv_lag'],
 
-    # ── 3F + 3 variants ───────────────────────────────────────────────────────
-    '6F_G':  ['delta', 'T', 'spy_ret', 'vix_lag', 'vix_mom_lag', 'gamma'],
-    '6F_R':  ['delta', 'T', 'spy_ret', 'vix_lag', 'vix_mom_lag', 'rho'],
-    '6F_T':  ['delta', 'T', 'spy_ret', 'vix_lag', 'vix_mom_lag', 'theta'],
-
-    # ── 3F + 5 variants ───────────────────────────────────────────────────────
-    '8F_GT': ['delta', 'T', 'spy_ret', 'vix_lag', 'vix_mom', 'vix_mom_lag', 'gamma', 'theta'],
-    '8F_GR': ['delta', 'T', 'spy_ret', 'vix_lag', 'vix_mom', 'vix_mom_lag', 'gamma', 'rho'],
+    # ── 8F (6F_gamma +vix_mom +theta/rho) ──────────────────────────────────
+    '8F_theta':         ['delta', 'T', 'spy_ret', 'vix_lag', 'vix_mom_lag', 'vix_mom', 'gamma', 'theta'],
+    '8F_theta+iv_lag':  ['delta', 'T', 'spy_ret', 'vix_lag', 'vix_mom_lag', 'vix_mom', 'gamma', 'theta', 'iv_lag'],
+    
+    '8F_rho':           ['delta', 'T', 'spy_ret', 'vix_lag', 'vix_mom_lag', 'vix_mom', 'gamma', 'rho'],
+    '8F_rho+iv_lag':    ['delta', 'T', 'spy_ret', 'vix_lag', 'vix_mom_lag', 'vix_mom', 'gamma', 'rho', 'iv_lag'],
 }
+
 TARGET = 'd_iv'
 
 GROUP_KEYS = ['k', 'expiration']
@@ -507,7 +514,24 @@ def save_seq_run(run_dir, *, results_by_fs, hw_coef, df_sorted):
     summary_rows = []
     diag_rows = []
     total_time = 0.0
+    prev_sse = None
     first_model = True
+
+    # Single Analytic row from the first feature set
+    first_fs_name = list(results_by_fs.keys())[0]
+    first_res = results_by_fs[first_fs_name]
+    y_hw_first, _, hw_sse_first = hw_predict_aligned(
+        hw_coef, df_sorted, first_res['test_indices'])
+    hw_met = metrics(first_res['y_true'], y_hw_first)
+    hw_met['Model'] = 'Analytic'
+    hw_met['Training_time'] = None
+    hw_met['Gain_vs_Analytic'] = None
+    hw_met['Gain_Incremental'] = None
+    summary_rows.append(hw_met)
+    prev_sse = hw_met['SSE']
+
+    diag_rows.append(residual_diagnostics(
+        first_res['y_true'], y_hw_first, label='Analytic'))
 
     for fs_name, res in results_by_fs.items():
         y_pred = res['y_pred']
@@ -519,27 +543,24 @@ def save_seq_run(run_dir, *, results_by_fs, hw_coef, df_sorted):
 
         # Model metrics
         met = metrics(y_true, y_pred)
-        hw_met = metrics(y_true, y_hw)
         g = gain(met['SSE'], hw_sse) * 100
-
-        # Analytic row (per feature set, since test rows may differ)
-        hw_row = hw_met.copy()
-        hw_row['Model'] = f'Analytic ({fs_name})'
-        hw_row['Training_time'] = None
-        hw_row['Gain_vs_Analytic'] = None
-        summary_rows.append(hw_row)
 
         # Model row
         model_row = met.copy()
         model_row['Model'] = fs_name
         model_row['Training_time'] = f"{res['training_time']:.1f}s"
         model_row['Gain_vs_Analytic'] = f"{g:.2f}%"
+        model_row['Gain_Incremental'] = (
+            None if first_model
+            else f"{gain(met['SSE'], prev_sse) * 100:.2f}%"
+        )
         summary_rows.append(model_row)
+        prev_sse = met['SSE']
+        first_model = False
 
         total_time += res['training_time']
 
         # Residual diagnostics
-        diag_rows.append(residual_diagnostics(y_true, y_hw, label=f'Analytic ({fs_name})'))
         diag_rows.append(residual_diagnostics(y_true, y_pred, label=fs_name))
 
         # Save weights
@@ -560,7 +581,7 @@ def save_seq_run(run_dir, *, results_by_fs, hw_coef, df_sorted):
     summary_rows.append(total_row)
 
     col_order = ['Model', 'SSE', 'MSE', 'RMSE', 'MAE', 'MeanError', 'MedianAE',
-                 'R2', 'Training_time', 'Gain_vs_Analytic']
+                 'R2', 'Training_time', 'Gain_vs_Analytic', 'Gain_Incremental']
     summary = pd.DataFrame(summary_rows)
     for col in col_order:
         if col not in summary.columns:
