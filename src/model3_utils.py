@@ -45,10 +45,28 @@ LOOKBACK = 20
 MIN_STEPS_PER_EPOCH = 50
 
 FEATURE_SETS = {
+    # ── Original series-3 sets ────────────────────────────────────────────────
     '4F': ['delta', 'T', 'spy_ret', 'vix_lag'],
     '5F': ['delta', 'T', 'spy_ret', 'vix_lag', 'iv_lag'],
     '6F': ['delta', 'T', 'spy_ret', 'vix_lag', 'iv_lag', 'd_iv_lag'],
     '8F': ['delta', 'T', 'spy_ret', 'vix_lag', 'iv_lag', 'd_iv_lag', 'gamma', 'rho'],
+
+    # ── Recommended sets from FC gain analysis (2.x-avg-feature-gain-A-B-C) ──
+    # FC rank-1 combo: gamma+theta+vix_lag+vix_mom+vix_mom_lag (avg gain 38.96%).
+    # theta replaces rho (stronger in FC); vix_mom+vix_mom_lag add explicit VIX
+    # momentum on top of the raw vix_lag level.
+    # Use when: you want the full recommended set. Best starting point for all
+    # three architectures. If LSTM/GRU already capture momentum from the lookback
+    # sequence, vix_mom/vix_mom_lag may be partially redundant — compare vs 6F_GT.
+    '8F_GT': ['delta', 'T', 'spy_ret', 'gamma', 'theta',
+               'vix_lag', 'vix_mom', 'vix_mom_lag'],
+
+    # Lean version of the above (FC rank-16 with gamma+theta+vix_lag, avg gain
+    # 30.36%). Drops vix_mom and vix_mom_lag under the hypothesis that sequence
+    # models derive momentum implicitly from the LOOKBACK=20 window.
+    # Use when: testing whether explicit momentum features add value over what
+    # the recurrent/attention architecture already learns from the sequence.
+    '6F_GT': ['delta', 'T', 'spy_ret', 'gamma', 'theta', 'vix_lag'],
 }
 TARGET = 'd_iv'
 
