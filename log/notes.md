@@ -18,6 +18,18 @@
 
 same + iv lag
 
+# Seq Features:
+
+
+6F_gamma+iv_lag:  [delta, T, spy_ret, vix_lag, vix_mom_lag, gamma, iv_lag],
+8F_rho+iv_lag:    [delta, T, spy_ret, vix_lag, vix_mom_lag, vix_mom, gamma, rho, iv_lag],
+8F_theta+iv_lag:  [delta, T, spy_ret, vix_lag, vix_mom_lag, vix_mom, gamma, theta, iv_lag],
+
+- 3F:       (Basline): delta, T, spy ret
+- 6F:       3F + vix_lag, vix_mom_lag, gamma, iv_lag
+- 8F rho:   6F + vix_mom, rho, iv_lag
+- 8F theta: 6F + vix_mom, theta, iv_lag
+
 
 ########################################
 
@@ -68,3 +80,14 @@ Report it as-is but **don't lead with chro-B in isolation**. Once you have all f
 The most important next step is getting chro-C and chro-D results.
 
 ######################################################
+
+
+The core intuition
+The classic "volatility smirk" relationship is being visualized here. When the market falls (blue), implied volatility rises across the surface (positive z-values). When the market rises (red), IV falls (negative z-values). This is the well-known negative correlation between equity returns and volatility.
+The analytic model is linear in the return, so the impact of a +X% gain is equal and opposite to a -X% gain. You can see this in the top row: the blue and red surfaces are almost perfect mirror images of each other, smooth and well-behaved.
+The key difference: ANN bottom row
+The bottom row (your 3F ANN) tells a more interesting story. The surfaces are wavy and non-symmetric. The reduction in implied volatilities from a +1.25% daily return is on average about twice as large as the increase from a -1.25% return. This suggests the analytic model's predicted change is too high for large negative returns and too low for large positive returns.
+The ANN has learned this asymmetry from the data, which the linear analytic model structurally cannot capture.
+
+
+###########################################
