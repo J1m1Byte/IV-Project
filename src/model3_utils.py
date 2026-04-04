@@ -47,24 +47,24 @@ FEATURE_SETS = {
     # ── 3F (base) ───────────────────────────────────────────────────────────────
     '3F':               ['delta', 'T', 'spy_ret'],
     '3F+iv_lag':        ['delta', 'T', 'spy_ret', 'iv_lag'],
-    
+
     # ── 4F (3F +vix_lag) ──────────────────────────────────────────────────────────
     '4F':               ['delta', 'T', 'spy_ret', 'vix_lag'],
     '4F+iv_lag':        ['delta', 'T', 'spy_ret', 'vix_lag', 'iv_lag'],
 
     # ── 6F (4F +vix_mom_lag +gamma/theta/rho) ───────────────────────────────────────
     '6F_gamma':         ['delta', 'T', 'spy_ret', 'vix_lag', 'vix_mom_lag', 'gamma'],
-    '6F_gamma+iv_lag':  ['delta', 'T', 'spy_ret', 'vix_lag', 'vix_mom_lag', 'gamma', 'iv_lag'],
-    
+    '6F':               ['delta', 'T', 'spy_ret', 'vix_lag', 'vix_mom_lag', 'gamma', 'iv_lag'],
+
     '6F_theta':         ['delta', 'T', 'spy_ret', 'vix_lag', 'vix_mom_lag', 'theta'],
     '6F_theta+iv_lag':  ['delta', 'T', 'spy_ret', 'vix_lag', 'vix_mom_lag', 'theta', 'iv_lag'],
 
     # ── 8F (6F_gamma +vix_mom +theta/rho) ──────────────────────────────────
     '8F_theta':         ['delta', 'T', 'spy_ret', 'vix_lag', 'vix_mom_lag', 'vix_mom', 'gamma', 'theta'],
-    '8F_theta+iv_lag':  ['delta', 'T', 'spy_ret', 'vix_lag', 'vix_mom_lag', 'vix_mom', 'gamma', 'theta', 'iv_lag'],
-    
+    '8F theta':         ['delta', 'T', 'spy_ret', 'vix_lag', 'vix_mom_lag', 'vix_mom', 'gamma', 'theta', 'iv_lag'],
+
     '8F_rho':           ['delta', 'T', 'spy_ret', 'vix_lag', 'vix_mom_lag', 'vix_mom', 'gamma', 'rho'],
-    '8F_rho+iv_lag':    ['delta', 'T', 'spy_ret', 'vix_lag', 'vix_mom_lag', 'vix_mom', 'gamma', 'rho', 'iv_lag'],
+    '8F rho':           ['delta', 'T', 'spy_ret', 'vix_lag', 'vix_mom_lag', 'vix_mom', 'gamma', 'rho', 'iv_lag'],
 }
 
 TARGET = 'd_iv'
