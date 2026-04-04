@@ -1,23 +1,3 @@
-- Joke: The Creation of Adam by Michelangelo
-### Range A, B, C
-- 3F: delta, T, spy ret
-
-- 3F + 2: vix lag, vix mom lag
-
-- 3F + 3:
-    - vix lag, vix mom lag, gamma
-    - vix lag, vix mom lag, rho
-    - vix lag, vix mom lag, theta
-
-
-- 3F + 5: 
-    - vix lag, vix mom,  vix mom lag, gamma, theta
-    - vix lag, vix mom,  vix mom lag, gamma, rho
-
-### Range D 
-
-same + iv lag
-
 # Seq Features:
 
 
@@ -27,14 +7,11 @@ same + iv lag
 
 - 3F:       (Basline): delta, T, spy ret
 - 6F:       3F + vix_lag, vix_mom_lag, gamma, iv_lag
-- 8F rho:   6F + vix_mom, rho, iv_lag
-- 8F theta: 6F + vix_mom, theta, iv_lag
+- 8F rho:   6F + vix_mom, rho
+- 8F theta: 6F + vix_mom, theta
 
 
 ########################################
-
-
-Good question to ask — it deserves a careful answer.
 
 ### The Short Answer
 **It's not classical overfitting, but the result is period-dependent and needs context before you can trust it fully.**
@@ -91,3 +68,4 @@ The ANN has learned this asymmetry from the data, which the linear analytic mode
 
 
 ###########################################
+
