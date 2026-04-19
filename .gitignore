@@ -139,4 +139,5 @@ notebook/model/archive
 output/archive
 
 #
-/slide
+/report
+/log
