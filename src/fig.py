@@ -5,7 +5,7 @@ import matplotlib.pyplot as plt
 from scipy.interpolate import RectBivariateSpline
 from pathlib import Path
 
-from src.paths import OUTPUT, CLEAN_DATA_V2, FIG_OUTPUT
+from src.paths import OUTPUT, CLEAN_DATA, FIG_OUTPUT
 from src.benchmark import analytic_benchmark
 
 
@@ -42,9 +42,9 @@ def fig_3d(
     set_name = f'rand_{set_letter}'
     run_path = OUTPUT / f'{model_number}.{ord(set_letter) - ord("A")}-fc-rand-{set_letter}' / '01-run'
 
-    df_train = pd.read_parquet(CLEAN_DATA_V2 / (set_name + '_train_v2.parquet'))
-    df_val = pd.read_parquet(CLEAN_DATA_V2 / (set_name + '_val_v2.parquet'))
-    df_test = pd.read_parquet(CLEAN_DATA_V2 / (set_name + '_test_v2.parquet'))
+    df_train = pd.read_parquet(CLEAN_DATA / (set_name + '_train.parquet'))
+    df_val = pd.read_parquet(CLEAN_DATA / (set_name + '_val.parquet'))
+    df_test = pd.read_parquet(CLEAN_DATA / (set_name + '_test.parquet'))
 
     scaler_3f = pd.read_pickle(run_path / 'train-history/ANN-3F_scaler.pkl')
     model_3f = tf.keras.models.load_model(run_path / 'train-history/ANN-3F.keras')
