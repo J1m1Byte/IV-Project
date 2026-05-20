@@ -1,0 +1,35 @@
+[build-system]
+requires = ["setuptools"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "implied_volatility"
+version = "0.1.0"
+requires-python = ">=3.10"
+
+dependencies = [
+    "pandas",
+    "numpy",
+    "matplotlib",
+    "seaborn",
+    "scikit-learn",
+    "scipy",
+    "torch",
+    "keras",
+    "tensorflow",
+    "jupyter",
+    "jupyterlab",
+    "nbconvert",
+    "papermill",
+    "pyarrow",
+    "python-dotenv",
+    "tqdm",
+    "requests",
+    "psycopg2-binary",
+    "SQLAlchemy",
+    "pytest",
+]
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["src*"]
